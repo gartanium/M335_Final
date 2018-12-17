@@ -1,0 +1,194 @@
+---
+title: "Project_2"
+author: "Matthew Brown"
+date: "December 15, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(forcats)
+library(pander)
+```
+
+## Background
+Car crashes in the United States results in over 30,000 fatalities annually. Kaggle.com hosts a dataset on every car related fatality between 2015 to 2016. It is titled US Traffic Fatality Records. It contains interesting features such as the light condition and the atmospheric condition during each fatal car crash. It would be interesting to see if the two features are associated with respect to the number of car crash fatalities. One would assume that light conditions and weather conditions plays a role in the number of car fatalities. To answer this question, this analysis will look at every car crash fatality for the year 2015.
+
+## Hypothesis
+This Analysis will use the Chi-squared Test of Independence to answer the question, is light condition associated with the atmospheric condition with respect to the number of car fatalities?
+
+<br> <br>
+$H_0:$ Light condition and Atmospheric condition are independent. <br>
+$H_\alpha:$ Light condition and Atmospheric condition are associated. <br>
+<br> <br>
+
+## Analysis
+
+```{r echo=FALSE, warning=F}
+
+dat <- read.csv("Final_Data.csv")
+
+project_2_dat <- dat %>%
+  group_by(light_condition_name, atmospheric_conditions_1_name) %>%
+  summarize(total_fatalities = sum(number_of_fatalities)) 
+
+dat_percentage <- project_2_dat %>%
+  mutate(group_fatalities = sum(total_fatalities)) %>%
+  mutate(total_fatalities = total_fatalities/group_fatalities)
+
+
+dat_filtered <- project_2_dat %>%
+  filter(light_condition_name != "Not Reported") %>%
+  filter(light_condition_name != "Unknown") %>%
+  filter(light_condition_name != "Other") %>%
+  filter(atmospheric_conditions_1_name != "Unknown") %>%
+  filter(atmospheric_conditions_1_name != "Not Reported") %>%
+  filter(atmospheric_conditions_1_name != "Other")
+
+dat_matrix_prep <- dat_filtered %>%
+  mutate(total_fatalities = as.numeric(total_fatalities)) %>%
+  spread(atmospheric_conditions_1_name, total_fatalities, fill=0)
+
+dat_as_matrix <- matrix(unlist(dat_matrix_prep), 6)
+# set the rownames
+#dat_as_matrix <- dat_as_matrix[,-1]
+
+# Convert to numeircm atrix
+dat_as_matrix_b <- dat_as_matrix[,-1] %>%
+  mapply(dat_as_matrix, FUN=as.numeric) %>%
+  matrix(ncol=10, nrow=6)
+
+rownames(dat_as_matrix_b) <- c(dat_as_matrix[1:6,1])
+
+matrix_col_names <- c("Blowing Sand, Soil, Dirt", "Blowing Snow",
+                               "Clear", "Cloudy", "Fog, Smog, Smoke",
+                               "Freezing Rain or Drizzle", "Rain",
+                               "Severe Crosswinds", "Sleet, Hail",
+                               "Snow")
+
+colnames(dat_as_matrix_b) <- matrix_col_names
+
+```
+
+Below is a graphic that shows how the number of fatalities are related to the Atmospheric condition and the lighting condition. It shows that the majority of car crashes happen when atmospheric conditions are clear. As a side note, this might show that a majority of drivers drive during clear conditions. However that is not the focus of this analysis. 
+
+```{r echo=FALSE, warning=F}
+ggplot(
+  data=dat_filtered,
+  aes(y=total_fatalities, x=light_condition_name, fill=atmospheric_conditions_1_name)
+) +
+  geom_col() +
+  theme(axis.text.x = element_text(angle=45, hjust=1)) +
+  ylab("Total Fatalities") +
+  xlab("Light Condition") +
+  guides(fill=guide_legend(title="Atmospheric Condition")) +
+  ggtitle("Total Car-Related Fatalities For 2015")
+```  
+
+
+It's hard to see any association based on this graphic. Another graphic is shown below. It shows how each atmospheric condition makes up the total percentage of fatalities for each category of lighting conditions. For instance, during the night when streets are lighted, clear atmospheric conditions make up about 75% of all traffic fatalities. 
+
+What's intersting about this graphic is that it shows possible associations between lighting conditions and Atmospheric Conditions. For instance, the Freezing Rain or Drizzle category makes up an unusually hight amount of fatalities for the Dawn Lighting condition. In addition, the amount of fatalities that occurs during clear atmospheric conditions varies across lighting conditions.
+
+```{r echo=FALSE, warning=F}
+dat_percentage <- dat_filtered %>%
+  mutate(group_fatalities = sum(total_fatalities)) %>%
+  mutate(total_fatalities = 100 * total_fatalities/group_fatalities)
+
+ggplot(
+  data=dat_percentage,
+  aes(y=total_fatalities, x=light_condition_name, fill=atmospheric_conditions_1_name)
+) +
+  geom_col() +
+  theme(axis.text.x = element_text(angle=45, hjust=1)) +
+  ylab("Percentage of Fatalities per Atmospheric Condition") +
+  xlab("Light Condition") +
+  guides(fill=guide_legend(title="Atmospheric Condition")) +
+  ggtitle("Breakup of Car-Related Fatalities For 2015")
+```
+
+
+
+## Test Results
+As shown below, the p-value is 2.2e-16.
+```{r echo=FALSE, warning=F}
+results <- chisq.test(dat_as_matrix_b)
+results
+```
+
+## Test Analysis
+The results of the chi-squared Test of Independence is shown below. With a p-value less than 2.2e-16, we can reject the Null-Hypothesis that $H_0:$ The lighting condition and Atmospheric condition are independent in favor of the Alternative Hypothesis that $H_\alpha:$ The lighting condition and Atmospheric condition are associated. The appropriatness of the data is discussed in the Diagnostics section. 
+
+## Diagnostics
+
+In the following plotly tables, the rows are as follows
+<br>
+Row 1: Dark-Lighted
+<br>
+Row 2: Dark-Not-Lighted
+<br>
+Row 3: Dark-Unknown-Lighting
+<br>
+Row 4: Dawn
+<br>
+Row 5: Daylight
+<br>
+Row 6: Dusk
+<br>
+
+
+### Expected
+Although not all counts are greater than 5, the data is appropriate to use because the average of the counts is far greater than 5. The average is shown below.
+```{r echo=FALSE, warning=F}
+pander(results$expected)
+```
+### Expected greater than 5
+
+```{r echo=FALSE, warning=F}
+pander(results$expected > 5)
+```
+### Average Expected Counts
+
+```{r echo=FALSE, warning=F}
+mean(results$expected)
+```
+
+### Residuals
+The residuals the depart the most are 9.314, -7.084. They are, respectively, for the following combinations. <br>
+9.134:  Fog, Smog, Smoke Atmospheric conditions with Dark-Not-Lighting <br>
+-7.084: Fog-Smog-Smoke, and Day-light <br>
+
+```{r echo=FALSE, warning=F}
+pander(results$residuals)
+```
+
+The following graphic shows that indeed, there is an obvious difference in the number of fatalities for Dark-Not Lighted and Daylight. This is for the atmospheric condition of Fog, Smog, Smoke.
+<br>
+
+```{r echo=FALSE, warning=F}
+fog_only_dat <- dat_filtered %>%
+  filter(atmospheric_conditions_1_name == "Fog, Smog, Smoke") 
+
+fog_only_dat$Expected <- c(81.38, 125.6, 8.903, 210.9, 11.1)
+
+pander(fog_only_dat)
+
+ggplot(
+  data=fog_only_dat,
+  aes(y=total_fatalities, x=light_condition_name, fill=atmospheric_conditions_1_name)
+) +
+  geom_col() +
+  geom_point(aes(x=light_condition_name, y=Expected)) +
+  theme(axis.text.x = element_text(angle=45, hjust=1)) +
+  ylab("Total Fatalities") +
+  xlab("Light Condition") +
+  guides(fill=guide_legend(title="Atmospheric Condition (Expected Value is Black Dot)")) +
+  ggtitle("Total Car-Related Fatalities For 2015")
+```
+<br>
+
+## Conclusion
+We can conclude that the Atmospheric condition and Lighting condition are associated. We also conclude that specifically, the atmospheric conditions of Fog, Smog, Smoke with the conditions of ether Dark-lighted or Day-Light vary greatly and should be further analyzed.

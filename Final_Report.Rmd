@@ -1,0 +1,353 @@
+---
+title: "Final_RMD"
+author: "Matthew Brown"
+date: "December 15, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(forcats)
+library(readr)
+library(readxl)
+library(stringr)
+library(USAboundaries)
+library(leaflet)
+library(maps)
+
+
+# Gets the national data for every car crash involving a fatality.
+get_accident_data <- function() {
+  return(
+    dat <- read_csv("Data/Accidents_Data.csv") %>%
+      rename(COUNTY_NUMERIC = county) %>%
+      mutate(STATE_ABV = state.abb[match(state_name,state.name)]) %>%
+      mutate(SC_ID= paste(STATE_ABV, COUNTY_NUMERIC, sep='_')) %>%
+      select( -COUNTY_NUMERIC)
+  )
+}
+
+write_data <- function(dat) {
+  dat %>%
+    select(-geometry) %>%
+    write.csv("Final_Data.csv")
+}
+
+# Gets the GLA data for county codes.
+get_code_data <- function() {
+  return(
+    dat <- read_csv("Data/NationalFedCodes.csv") %>%
+      select(COUNTY_NAME, STATE_ALPHA, COUNTY_NUMERIC) %>%
+      group_by(COUNTY_NUMERIC, STATE_ALPHA) %>%
+      filter(row_number(COUNTY_NAME) == 1) %>%
+      ungroup() %>%
+      mutate(SC_ID= paste(STATE_ALPHA, COUNTY_NUMERIC, sep='_')) %>%
+      select(-STATE_ALPHA, -COUNTY_NUMERIC)
+  )
+}
+
+# Returns a dataset containing the geometries of every county.
+get_county_geometries <- function() {
+  return (
+    USAboundaries::us_counties() %>%
+      filter(!is.na(name)) %>%
+      mutate(SC_ID_NAMED = paste(state_name, name, sep='_')) %>%
+      select(SC_ID_NAMED, geometry)
+  )
+}
+
+# Returns a dataframe containing the 2010 population for each county.
+get_county_populations <- function() {
+  return (
+    us_cities() %>%
+      filter(!is.na(population)) %>%
+      mutate(SC_ID_NAMED = paste(state_name, county_name, sep='_')) %>%
+      group_by(SC_ID_NAMED) %>%
+      summarize(county_pop = sum(population))
+  )
+}
+
+# Merges the population and county geometry data.
+merge_county_data <- function() {
+  geometry_dat <- get_county_geometries()
+  pop_dat <- get_county_populations()
+  return(
+    dplyr::left_join(geometry_dat, pop_dat, by="SC_ID_NAMED") %>%
+      filter(!is.na(county_pop))
+  )
+}
+
+merge_accident_code_dat <- function() {
+  accident_dat <- get_accident_data() 
+  code_dat <- get_code_data()
+  return(
+    dplyr::left_join(accident_dat, code_dat) %>%
+      mutate(SC_ID_NAMED = paste(state_name, COUNTY_NAME, sep='_'))
+  )
+}
+
+get_merged_data <- function() {
+  accident_code_dat <- merge_accident_code_dat()
+  merged_county_dat <- merge_county_data()
+  
+  return(
+    dplyr::left_join(accident_code_dat, merged_county_dat) %>%
+      filter(!is.na(COUNTY_NAME))
+  ) 
+}
+
+# Build our data
+final_data <- get_merged_data()
+
+
+## LEAFLET FUNCTIONS
+display_crashes_by_state <- function(dat) {
+  merged_data <- dat 
+  
+  ggplot()+
+    geom_sf(data = merged_data, aes(fill = county_pop)) +
+    scale_fill_gradient2()
+}
+
+display_Idaho_crashes <- function(dat) {
+  merged_data <- dat %>%
+    filter(STATE_ABV == "ID")
+  ggplot()+
+    geom_sf(data = merged_data, aes(fill = county_pop)) +
+    scale_fill_gradient2()
+    
+}
+
+display_fatalaties_by_county <- function(dat) {
+  merged_data <- dat %>%
+    filter(state_name == "California") %>%
+    filter(county_pop >= 100000) %>%
+    group_by(COUNTY_NAME) %>%
+    mutate(total_fatalities = sum(number_of_fatalities)) %>%
+    filter(row_number()==1) %>%
+    mutate(total_fatalities = total_fatalities*100000/county_pop) %>%
+    select(COUNTY_NAME, total_fatalities, county_pop, geometry) 
+  
+  ggplot()+
+    geom_sf(data = merged_data, aes(fill = total_fatalities)) +
+    scale_fill_gradient2()
+}
+
+leaflet_display_fatalaties_by_county <- function(dat) {
+  merged_data <- dat %>%
+    filter(state_name == "Idaho") %>%
+    filter(county_pop >= 0) %>%
+    group_by(COUNTY_NAME) %>%
+    mutate(total_fatalities = sum(number_of_fatalities)) %>%
+    filter(row_number()==1) %>%
+    select(COUNTY_NAME, total_fatalities, county_pop, geometry) %>%
+    ungroup() %>% 
+    as_tibble() 
+  
+  library(sf) 
+  merged_data <- merged_data %>%
+    st_as_sf()
+  
+  
+  pal <- colorNumeric(c("white", "black"), 0:50) 
+  # pal <- colorNumeric(c("white", "black"), 
+  #min(merged_data$total_fatalities):max(merged_data$total_fatalities)
+  
+  leaflet(merged_data) %>%
+    addTiles() %>%
+    addPolygons(
+      color = "#444444", weight = 1, smoothFactor = 0.5,
+      opacity = 1.0, fillOpacity = 0.5,
+      fillColor = ~pal(merged_data$total_fatalities),
+      highlightOptions = highlightOptions(color = "white", weight = 2,
+      bringToFront = TRUE)
+      ) %>%
+    setView(lng=-112.033966, lat=43.491650, zoom=5) %>%
+    addLegend("bottomright", pal = pal, values = ~total_fatalities,
+              title = "Total Car Related \nFatalities (2015)",
+              opacity = 1
+    )
+}
+## END LEAFLET FUNCTIONS
+```
+
+## Background
+Car crashes in the United States results in over 30,000 fatalities annually. Kaggle.com hosts a dataset on every car related fatality between 2015 to 2016. It is titled US Traffic Fatality Records. It contains many interesting features such as the light condition, if there was a drunk driver involved in the crash, and the atmospheric condition. Often times we have stereo types of what conditions lead to the safest driving experience. We often believe that poor atmospheric conditions, lighting, population of an area, and number of drunk drivers all contribute significantly to the number of car related fatalities. 
+
+## Analysis
+This Analysis seeks to answer the following question; How does Madison county and the surrounding counties compare to the national averages for car fatalities? How do they differ specifically with regards to the number of residents, atmospheric conditions, lighting conditions, and the number of drunk-driving fatalities. 
+
+## Population Analysis
+```{r echo=FALSE, warning=FALSE}
+
+
+leaflet_display_fatalaties_by_county(final_data)
+
+
+```
+
+```{r echo=FALSE, warning=F}
+
+
+  us_population_2010 <-  309300000
+  us_average_fatalities <- 31571 * 100000/ 309000000
+  
+  final_data <- read.csv("Final_Data.csv")
+  
+  state_pop_data <- final_data %>%
+    group_by(state_name)
+  
+  clean_data <- final_data %>%
+    filter(!is.na(county_pop)) %>%
+    filter(as.numeric(county_pop) > 0)
+  
+  # Total fatalities by Population (2010 Census)
+  county_fatality_rates <- clean_data %>%
+    group_by(SC_ID) %>%
+    summarize(county_fatality_per_hundred_thousand = sum(number_of_fatalities) * 100000 / max(county_pop)) %>%
+    ungroup() 
+  
+  idaho_fatality_county_rates <- clean_data %>%
+    filter(state_name == "Idaho") %>%
+    group_by(COUNTY_NAME) %>%
+    summarize(fatality_rate = sum(number_of_fatalities) * 100000 / sum(county_pop)) %>%
+    ungroup() %>%
+    arrange(desc(fatality_rate)) %>%
+    mutate(highlighted = (COUNTY_NAME == "Madison") | (COUNTY_NAME == "Bonneville") )
+  
+  idaho_fatality_county_rates$COUNTY_NAME <-
+    factor(
+      idaho_fatality_county_rates$COUNTY_NAME,
+      levels = 
+        idaho_fatality_county_rates$COUNTY_NAME[
+          order(
+            -idaho_fatality_county_rates$fatality_rate
+          )
+        ]
+    )
+  
+  
+  idaho_average_fatality_rate <- (idaho_fatality_county_rates %>%
+    summarize(average_rate = mean(fatality_rate)))$average_rate[1]
+  
+    
+  # Total rate per 100,000 people
+  US_Average_Fatality_Rate_Per_hundred_thousand <- 
+    county_fatality_rates %>%
+    summarize(average_rate = mean(county_fatality_per_hundred_thousand))
+   
+  
+  ################################################################
+  ## BUILD THE IDAHO TOTAL FATALITIES DATA  
+  idaho_total_county_fatalities <- clean_data %>%
+    filter(state_name == "Idaho") %>%
+    group_by(COUNTY_NAME) %>%
+    summarize(total_fatalities = sum(number_of_fatalities)) %>%
+    mutate(highlighted = (COUNTY_NAME == "Madison") | (COUNTY_NAME == "Bonneville") )
+  
+  idaho_total_county_fatalities$COUNTY_NAME <-
+    factor(
+      idaho_total_county_fatalities$COUNTY_NAME,
+      levels = 
+        idaho_total_county_fatalities$COUNTY_NAME[
+          order(
+            -idaho_total_county_fatalities$total_fatalities
+          )
+          ]
+    )
+  
+  
+  # Displays the total number of fatalities.
+  ggplot() +
+    geom_col(
+      data=idaho_total_county_fatalities,
+      aes(x=COUNTY_NAME, y=total_fatalities, fill=highlighted)
+    ) +
+    theme(axis.text.x = element_text(angle=45, hjust=1))  +
+    scale_fill_discrete(guide = 'none') +
+    geom_text(
+      data=idaho_total_county_fatalities,
+      aes(label = total_fatalities, y = total_fatalities + 0.1, x=COUNTY_NAME),
+      position = position_dodge(0.9),
+      vjust = 0
+    ) +
+    ylab("Total Fatalities") +
+    xlab("County Name") +
+    ggtitle("Total Number of Car Related Fatalities In Idaho For 2015")
+  
+  
+  ```
+  
+  ```{r echo=FALSE, warning=F}
+  
+  # Displays the total fatality rates.
+  ggplot() +
+    geom_col(
+      data=idaho_fatality_county_rates,
+      aes(x=COUNTY_NAME, y=fatality_rate, fill=highlighted)
+    ) +
+    theme(axis.text.x = element_text(angle=45, hjust=1))  +
+    geom_hline(aes(yintercept=us_average_fatalities)) +
+    geom_text(
+      aes(
+        label="National Average Fatality Rate", 
+        5, 
+        us_average_fatalities, 
+        vjust=-1)
+    ) +
+    geom_hline(aes(yintercept=idaho_average_fatality_rate)) +
+    geom_text(
+      aes(label="Idaho Average County Rate", 5,idaho_average_fatality_rate, vjust=-1)
+      ) +
+    scale_fill_discrete(guide = 'none') +
+    ylab("Fatalities Per 100,000 People") +
+    xlab("County Name") +
+    ggtitle("Car Related Fatality Rates In Idaho For 2015") +
+    geom_text(
+      data=idaho_fatality_county_rates,
+      aes(label = floor(fatality_rate), y = fatality_rate + 0.1, x=COUNTY_NAME),
+      position = position_dodge(0.9),
+      vjust = 0
+    ) 
+```
+
+<br>
+
+#### US Fatalaties
+Location: https://www.kaggle.com/usdot/nhtsa-traffic-fatalities <br>
+This Dataset pulled from Kaggle wasn't perfectly clean. In addition, to obtain the dataset, I used Python to make SQL requests to the server that hosts the data. I selected the following features from Kaggle:
+
+state_name <br>
+county <br>
+city <br>
+hour_of_crash <br>
+day_of_crash <br>
+month_of_crash <br>
+light_condition_name <br>
+atmospheric_conditions_1_name <br>
+number_of_fatalities <br>
+number_of_drunk_drivers <br>
+timestamp_of_crash <br>
+
+<br>
+The description for each column can be found at the following link https://www.kaggle.com/usdot/nhtsa-traffic-fatalities
+<br>
+
+#### National Fed Codes
+Location: https://www.gsa.gov/reference/geographic-locator-codes-glcs-overview <br>
+This dataset contains the national geo location codes for each county in the United States.It's usefull if one wants to convert these codes into actual county names.
+
+#### USA Counties and USA States
+Location: USAboundaries R package
+I used this dataset for county populations from the 2010 census, and geometries. 
+
+
+### Cleaning The Data
+
+<br>
+
+#### Merging The Data
+The US Fatalaties dataset contained Government GLA codes to identify each county. It did not, however, have the actual name of each county. To replace the county code with the county name, I merged the NatinoalFedCodes dataset, US Fatalaties dataset, and the us_counties dataset from the USAbounadaries library.

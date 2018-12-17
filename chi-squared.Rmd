@@ -1,0 +1,60 @@
+---
+title: "CS-325-12"
+author: "Matthew Brown"
+date: "December 8, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(ggplot2)
+library(readr)
+library(readxl)
+library(stringr)
+library(USAboundaries)
+library(leaflet)
+library(maps)
+```
+##Background
+Drunk Driving is a major problem in the United States. Programs nation wide seek to curve it. We often hear stories of families being devestated by the irresponsibility of one person who is driving under the influence. One might suspect that there is a correlation between drunk driving and the time of day. One might also suspect that it is more likely to get into an accident if a driver is drunk over being sober.
+
+##Hypothesis
+This analysis asks the question Is the soberness of the driver and the hour of the day associated in fatal crashes?
+<br>
+<br>
+$H_0:$ The hour of the day and soberness of the driver is associated. <br>
+$H_\alpha:$ The hour of the day and soberness of the driver are not associated. <br>
+$\alpha: =$ 0.05 <br>
+<br>
+<br>
+
+##Test Data
+Summarized 2015 Statistics on fatal car crashes by hour of day.
+```{r echo=FALSE}
+merged_data <- read.csv("Drunk_Driving.csv") %>%
+  select(-`X.1`, -`X.2`, -X) 
+head(merged_data, 25)
+```
+
+##Plot
+The following graphic would imply that there is a correlation between the time of day, and the number of drunk driving related fatalities. What's interesting is that as we get more into the sleep hours, there is a greater number of drunk driving related fatalties. As we leave those hours, there are less fatalities. <br>
+
+```{r echo=FALSE}
+    ggplot(data=merged_data) +
+      geom_point(aes(y=hour_of_crash, x=drunk_drivers), color="Red") +
+      geom_point(aes(y=hour_of_crash, x=sober_drivers)) +
+      ggtitle("Fatal Crashes involving DUI(Red) Vs. Non-DUI(Black) For 2015") +
+      xlab("Number of Drivers") +
+      ylab("Hour") +
+      theme_bw()
+```
+
+## Test results
+```{r echo=FALSE}
+    test_results <- chisq.test(merged_data$drunk_drivers, merged_data$sober_drivers)
+    test_results
+    test_results$expected 
+```
+## Interpretation
+With a p-value of 0.2411, we do not reject the Null hypothesis. We come to the conclusion that the hour of  the day and the soberness of the driver are not associated. However, because none of the expected counts are greater than 1, this data is not appropriate for any chi-squared test.
