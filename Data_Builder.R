@@ -15,6 +15,7 @@ get_accident_data <- function() {
       rename(COUNTY_NUMERIC = county) %>%
       mutate(STATE_ABV = state.abb[match(state_name,state.name)]) %>%
       mutate(SC_ID= paste(STATE_ABV, COUNTY_NUMERIC, sep='_')) %>%
+      filter(state_name == "Idaho") %>%
       select( -COUNTY_NUMERIC)
   )
 }
@@ -31,6 +32,7 @@ get_code_data <- function() {
     dat <- read_csv("Data/NationalFedCodes.csv") %>%
       select(COUNTY_NAME, STATE_ALPHA, COUNTY_NUMERIC) %>%
       group_by(COUNTY_NUMERIC, STATE_ALPHA) %>%
+      filter(STATE_ALPHA == "ID") %>%
       filter(row_number(COUNTY_NAME) == 1) %>%
       ungroup() %>%
       mutate(SC_ID= paste(STATE_ALPHA, COUNTY_NUMERIC, sep='_')) %>%
@@ -42,20 +44,22 @@ get_code_data <- function() {
 get_county_geometries <- function() {
   return (
     USAboundaries::us_counties() %>%
+      filter(state_name == "Idaho") %>%
       filter(!is.na(name)) %>%
       mutate(SC_ID_NAMED = paste(state_name, name, sep='_')) %>%
       select(SC_ID_NAMED, geometry)
   )
 }
 
+
 # Returns a dataframe containing the 2010 population for each county.
 get_county_populations <- function() {
+  
+  pop_dat <- read_csv("Data/County_Populations.csv")
   return (
-    us_cities() %>%
-      filter(!is.na(population)) %>%
-      mutate(SC_ID_NAMED = paste(state_name, county_name, sep='_')) %>%
-      group_by(SC_ID_NAMED) %>%
-      summarize(county_pop = sum(population))
+    pop_dat %>%
+      group_by(county_name) %>%
+      mutate(SC_ID_NAMED = paste("Idaho", county_name, sep='_'))
   )
 }
 
@@ -64,8 +68,7 @@ merge_county_data <- function() {
   geometry_dat <- get_county_geometries()
   pop_dat <- get_county_populations()
   return(
-    dplyr::left_join(geometry_dat, pop_dat, by="SC_ID_NAMED") %>%
-      filter(!is.na(county_pop))
+    dplyr::left_join(geometry_dat, pop_dat, by="SC_ID_NAMED") 
   )
 }
 
@@ -78,17 +81,23 @@ merge_accident_code_dat <- function() {
   )
 }
 
+View(merge_accident_code_dat())
+
 get_merged_data <- function() {
-  accident_code_dat <- merge_accident_code_dat()
+  accident_code_dat <- merge_accident_code_dat() 
   merged_county_dat <- merge_county_data()
+  centeroids <- read_csv("Data/Idaho_Geo_County_Centeroids.csv") %>%
+    mutate(county_latitude = as.numeric(county_latitude)) %>%
+    mutate(county_longitude = as.numeric(county_longitude) * -1)
   
+  accident_code_dat <- dplyr::left_join(centeroids, accident_code_dat)
+   
   return(
     dplyr::left_join(accident_code_dat, merged_county_dat) %>%
-      filter(!is.na(COUNTY_NAME))
+      filter(!is.na(COUNTY_NAME)) 
   ) 
 }
 
 # Build our data
 final_data <- get_merged_data()
-
 

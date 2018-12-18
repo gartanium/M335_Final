@@ -24,6 +24,16 @@ centeroids <- read_csv("Data/Idaho_Geo_County_Centeroids.csv")
 ```
 
 ```{r, echo=FALSE, warning=FALSE}
+library(dplyr)
+library(ggplot2)
+library(readr)
+library(readxl)
+library(stringr)
+library(USAboundaries)
+library(maps)
+#library(sf)
+#library(sf)
+
 # Gets the national data for every car crash involving a fatality.
 get_accident_data <- function() {
   return(
@@ -31,9 +41,11 @@ get_accident_data <- function() {
       rename(COUNTY_NUMERIC = county) %>%
       mutate(STATE_ABV = state.abb[match(state_name,state.name)]) %>%
       mutate(SC_ID= paste(STATE_ABV, COUNTY_NUMERIC, sep='_')) %>%
+      filter(state_name == "Idaho") %>%
       select( -COUNTY_NUMERIC)
   )
 }
+
 
 write_data <- function(dat) {
   dat %>%
@@ -47,6 +59,7 @@ get_code_data <- function() {
     dat <- read_csv("Data/NationalFedCodes.csv") %>%
       select(COUNTY_NAME, STATE_ALPHA, COUNTY_NUMERIC) %>%
       group_by(COUNTY_NUMERIC, STATE_ALPHA) %>%
+      filter(STATE_ALPHA == "ID") %>%
       filter(row_number(COUNTY_NAME) == 1) %>%
       ungroup() %>%
       mutate(SC_ID= paste(STATE_ALPHA, COUNTY_NUMERIC, sep='_')) %>%
@@ -58,17 +71,19 @@ get_code_data <- function() {
 get_county_geometries <- function() {
   return (
     USAboundaries::us_counties() %>%
+      filter(state_name == "Idaho") %>%
       filter(!is.na(name)) %>%
       mutate(SC_ID_NAMED = paste(state_name, name, sep='_')) %>%
       select(SC_ID_NAMED, geometry)
   )
 }
 
+
 # Returns a dataframe containing the 2010 population for each county.
 get_county_populations <- function() {
   return (
     us_cities() %>%
-      filter(!is.na(population)) %>%
+      mutate(population, is.na(population), 0) %>%
       mutate(SC_ID_NAMED = paste(state_name, county_name, sep='_')) %>%
       group_by(SC_ID_NAMED) %>%
       summarize(county_pop = sum(population))
@@ -94,11 +109,12 @@ merge_accident_code_dat <- function() {
   )
 }
 
-
 get_merged_data <- function() {
-  accident_code_dat <- merge_accident_code_dat()
+  accident_code_dat <- merge_accident_code_dat() 
   merged_county_dat <- merge_county_data()
-  
+  centeroids <- read_csv("Data/Idaho_Geo_County_Centeroids.csv") %>%
+    mutate(county_latitude = as.numeric(county_latitude)) %>%
+    mutate(county_longitude = as.numeric(county_longitude) * -1)
   
   accident_code_dat <- dplyr::left_join(centeroids, accident_code_dat)
    
@@ -108,11 +124,15 @@ get_merged_data <- function() {
   ) 
 }
 
-
 # Build our data
 final_data <- get_merged_data()
 
+```
 
+
+
+
+```{r echo=FALSE, warning=FALSE}
 ## LEAFLET FUNCTIONS
 display_crashes_by_state <- function(dat) {
   merged_data <- dat 
@@ -147,27 +167,10 @@ display_fatalaties_by_county <- function(dat) {
 }
 
 leaflet_display_fatalaties_by_county <- function(dat) {
-merged_data <- final_data %>%
-  filter(state_name == "Idaho") %>%
-  filter(county_pop >= 0) %>%
-  mutate(county_pop = county_pop / 1000) %>%
-  group_by(COUNTY_NAME) %>%
-  mutate(total_fatalities = sum(number_of_fatalities)) %>%
-  filter(row_number()==1) %>%
-  select(COUNTY_NAME, total_fatalities, county_pop, 
-         county_latitude, county_longitude, geometry, 
-         longitude, latitude) %>%
-  mutate(geometry2 = geometry) %>%
-  ungroup() %>% 
-  mutate(geo_id = paste(longitude, latitude, sep='_')) %>%
-  group_by(geo_id) %>%
-  mutate(total_lat_lon_fatals = sum(total_fatalities)) %>%
-  ungroup() %>%
-  as_tibble()  
 
 precise_accident_data <- final_data %>%
-  filter(state_name == "Idaho") %>%
-  filter(county_pop >= 0) %>%
+  mutate(county_pop = replace(county_pop, is.na(county_pop), 0)) %>%
+  #filter(county_pop >= 0) %>%
   as_tibble()
   
   library(sf) 
@@ -175,9 +178,9 @@ precise_accident_data <- final_data %>%
     st_as_sf()
   
   
-  pal <- colorNumeric(c("white", "black"), 
-                      min(merged_data$county_pop):
-                      max(merged_data$county_pop)) 
+  pal <- colorNumeric(c("white", "light blue"), 
+                      min(precise_accident_data$county_pop):
+                      max(precise_accident_data$county_pop)) 
   # pal <- colorNumeric(c("white", "black"), 
   #min(merged_data$total_fatalities):max(merged_data$total_fatalities)
   
@@ -185,22 +188,28 @@ precise_accident_data <- final_data %>%
     addTiles() %>%
     addPolygons(
       color = "#444444", weight = 1, smoothFactor = 0.5,
-      opacity = 1.0, fillOpacity = 0.5,
-      fillColor = ~pal(merged_data$county_pop),
+      opacity = 1, fillOpacity = 0.1,
+      fillColor = ~pal(precise_accident_data$county_pop),
       highlightOptions = highlightOptions(color = "white", weight = 2,
       bringToFront = TRUE)
       ) %>%
     setView(lng=-112.033966, lat=43.491650, zoom=5) %>%
-    addLegend("bottomright", pal = pal, values = ~1000*number_of_fatalities,
-              title = "County Population (Thousands)\n",
+    addLegend("bottomright", pal = pal, values = ~county_pop,
+              title = "County Population\n",
               opacity = 1
     ) %>%
     addCircles(lng=~longitude, 
                lat=~latitude, 
                weight=10,
                radius= ~1000*number_of_fatalities) %>%
-    addLabelOnlyMarkers(~county_longitude, ~county_latitude, label =  ~COUNTY_NAME, 
-                      labelOptions = labelOptions(noHide = T, direction = 'top', textOnly = T))
+    addLabelOnlyMarkers(
+      ~county_longitude, 
+      ~county_latitude - 0.1, 
+      label= ~COUNTY_NAME, 
+      labelOptions = 
+        labelOptions(noHide = T, 
+                     direction = 'top', 
+                     textOnly = T))
     
 }
 ## END LEAFLET FUNCTIONS
@@ -223,7 +232,7 @@ leaflet_display_fatalaties_by_county(final_data)
   us_population_2010 <-  309300000
   us_average_fatalities <- 31571 * 100000/ 309000000
   
-  final_data <- read.csv("Final_Data.csv")
+  
   
   state_pop_data <- final_data %>%
     group_by(state_name)
