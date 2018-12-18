@@ -81,8 +81,6 @@ merge_accident_code_dat <- function() {
   )
 }
 
-View(merge_accident_code_dat())
-
 get_merged_data <- function() {
   accident_code_dat <- merge_accident_code_dat() 
   merged_county_dat <- merge_county_data()
@@ -94,7 +92,7 @@ get_merged_data <- function() {
    
   return(
     dplyr::left_join(accident_code_dat, merged_county_dat) %>%
-      filter(!is.na(COUNTY_NAME)) 
+      filter(!is.na(COUNTY_NAME)) %>% rename(county_pop = population)
   ) 
 }
 
