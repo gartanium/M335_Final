@@ -18,7 +18,12 @@ library(USAboundaries)
 library(leaflet)
 library(maps)
 
+## Load in our centeroid data.
+centeroids <- read_csv("Data/Idaho_Geo_County_Centeroids.csv")
 
+```
+
+```{r, echo=FALSE, warning=FALSE}
 # Gets the national data for every car crash involving a fatality.
 get_accident_data <- function() {
   return(
@@ -89,15 +94,20 @@ merge_accident_code_dat <- function() {
   )
 }
 
+
 get_merged_data <- function() {
   accident_code_dat <- merge_accident_code_dat()
   merged_county_dat <- merge_county_data()
   
+  
+  accident_code_dat <- dplyr::left_join(centeroids, accident_code_dat)
+   
   return(
     dplyr::left_join(accident_code_dat, merged_county_dat) %>%
       filter(!is.na(COUNTY_NAME))
   ) 
 }
+
 
 # Build our data
 final_data <- get_merged_data()
@@ -137,39 +147,61 @@ display_fatalaties_by_county <- function(dat) {
 }
 
 leaflet_display_fatalaties_by_county <- function(dat) {
-  merged_data <- dat %>%
-    filter(state_name == "Idaho") %>%
-    filter(county_pop >= 0) %>%
-    group_by(COUNTY_NAME) %>%
-    mutate(total_fatalities = sum(number_of_fatalities)) %>%
-    filter(row_number()==1) %>%
-    select(COUNTY_NAME, total_fatalities, county_pop, geometry) %>%
-    ungroup() %>% 
-    as_tibble() 
+merged_data <- final_data %>%
+  filter(state_name == "Idaho") %>%
+  filter(county_pop >= 0) %>%
+  mutate(county_pop = county_pop / 1000) %>%
+  group_by(COUNTY_NAME) %>%
+  mutate(total_fatalities = sum(number_of_fatalities)) %>%
+  filter(row_number()==1) %>%
+  select(COUNTY_NAME, total_fatalities, county_pop, 
+         county_latitude, county_longitude, geometry, 
+         longitude, latitude) %>%
+  mutate(geometry2 = geometry) %>%
+  ungroup() %>% 
+  mutate(geo_id = paste(longitude, latitude, sep='_')) %>%
+  group_by(geo_id) %>%
+  mutate(total_lat_lon_fatals = sum(total_fatalities)) %>%
+  ungroup() %>%
+  as_tibble()  
+
+precise_accident_data <- final_data %>%
+  filter(state_name == "Idaho") %>%
+  filter(county_pop >= 0) %>%
+  as_tibble()
   
   library(sf) 
-  merged_data <- merged_data %>%
+  precise_accident_data <- precise_accident_data %>%
     st_as_sf()
   
   
-  pal <- colorNumeric(c("white", "black"), 0:50) 
+  pal <- colorNumeric(c("white", "black"), 
+                      min(merged_data$county_pop):
+                      max(merged_data$county_pop)) 
   # pal <- colorNumeric(c("white", "black"), 
   #min(merged_data$total_fatalities):max(merged_data$total_fatalities)
   
-  leaflet(merged_data) %>%
+  leaflet(precise_accident_data) %>%
     addTiles() %>%
     addPolygons(
       color = "#444444", weight = 1, smoothFactor = 0.5,
       opacity = 1.0, fillOpacity = 0.5,
-      fillColor = ~pal(merged_data$total_fatalities),
+      fillColor = ~pal(merged_data$county_pop),
       highlightOptions = highlightOptions(color = "white", weight = 2,
       bringToFront = TRUE)
       ) %>%
     setView(lng=-112.033966, lat=43.491650, zoom=5) %>%
-    addLegend("bottomright", pal = pal, values = ~total_fatalities,
-              title = "Total Car Related \nFatalities (2015)",
+    addLegend("bottomright", pal = pal, values = ~1000*number_of_fatalities,
+              title = "County Population (Thousands)\n",
               opacity = 1
-    )
+    ) %>%
+    addCircles(lng=~longitude, 
+               lat=~latitude, 
+               weight=10,
+               radius= ~1000*number_of_fatalities) %>%
+    addLabelOnlyMarkers(~county_longitude, ~county_latitude, label =  ~COUNTY_NAME, 
+                      labelOptions = labelOptions(noHide = T, direction = 'top', textOnly = T))
+    
 }
 ## END LEAFLET FUNCTIONS
 ```
@@ -181,12 +213,8 @@ Car crashes in the United States results in over 30,000 fatalities annually. Kag
 This Analysis seeks to answer the following question; How does Madison county and the surrounding counties compare to the national averages for car fatalities? How do they differ specifically with regards to the number of residents, atmospheric conditions, lighting conditions, and the number of drunk-driving fatalities. 
 
 ## Population Analysis
-```{r echo=FALSE, warning=FALSE}
-
-
+```{r echo=FALSE, warning=F}
 leaflet_display_fatalaties_by_county(final_data)
-
-
 ```
 
 ```{r echo=FALSE, warning=F}
@@ -281,6 +309,7 @@ leaflet_display_fatalaties_by_county(final_data)
   
   ```
   
+  
   ```{r echo=FALSE, warning=F}
   
   # Displays the total fatality rates.
@@ -314,6 +343,20 @@ leaflet_display_fatalaties_by_county(final_data)
     ) 
 ```
 
+```{r echo=FALSE, warning=F}
+
+  population_vs_fatalities <- final_data %>%
+    filter(state_name=="Idaho") %>%
+    filter(county_pop >= 0) %>%
+    select(COUNTY_NAME, county_pop, number_of_fatalities) %>%
+    group_by(COUNTY_NAME, county_pop) %>%
+    summarize(
+      total_fatalities = sum(number_of_fatalities)
+    )
+  
+
+```
+
 <br>
 
 #### US Fatalaties
@@ -345,7 +388,11 @@ Location: USAboundaries R package
 I used this dataset for county populations from the 2010 census, and geometries. 
 
 
-### Cleaning The Data
+#### County Geo Locations
+Location: https://en.wikipedia.org/wiki/User:Michael_J/County_table
+This dataset contained the geometric centeroids of all the counties in Idaho. I gathered this data from wikipedia and cleaned this data using regular expressions.
+(?=[:alpha:]\t)[^+]*
+(?=[:alpha:]*\d)[^+]*
 
 <br>
 

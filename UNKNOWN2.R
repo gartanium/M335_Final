@@ -47,16 +47,35 @@ leaflet_display_fatalaties_by_county <- function(dat) {
     st_as_sf()
   
   
-  pal <- colorNumeric(c("red", "green", "blue"), min(merged_data$total_fatalities):max(merged_data$total_fatalities))
+  pal <- colorNumeric(c("white", "black"), min(merged_data$total_fatalities):max(merged_data$total_fatalities))
   
-  leaflet(data=merged_data) %>% 
+  leaflet(merged_data) %>%
     addTiles() %>%
-    addPolygons(data=merged_data, weight=.45, group = t, fillColor = ~pal(merged_data$total_fatalities)) %>%
-    setView(lng=-112.033966, lat=43.491650, zoom=7) %>%
-    addMarkers(~Long, ~Lat, label = ~htmlEscape(Name))    
+    addPolygons(color = "#444444", weight = 1, smoothFactor = 0.5,
+                opacity = 1.0, fillOpacity = 0.5,
+                fillColor = ~pal(merged_data$total_fatalities),
+                highlightOptions = highlightOptions(color = "white", weight = 2,
+                                                    bringToFront = TRUE)) %>%
+    setView(lng=-112.033966, lat=43.491650, zoom=5) %>%
+    addLegend("bottomright", pal = pal, values = ~total_fatalities,
+              title = "Total Car Related \nFatalities (2015)",
+              opacity = 1
+    )
+    
+#  leaflet(data=merged_data) %>% 
+#    addTiles() %>%
+#    addPolygons(data=merged_data, weight=.45, group = t, fillColor = ~pal(merged_data$total_fatalities)) %>%
+#    setView(lng=-112.033966, lat=43.491650, zoom=7) %>%
+#    addMarkers(, label = ~htmlEscape(Name))    
 }
 
 leaflet_display_fatalaties_by_county(dat)
+
+
+
+
+
+
 
 
 

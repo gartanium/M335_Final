@@ -19,6 +19,12 @@ get_accident_data <- function() {
   )
 }
 
+write_data <- function(dat) {
+  dat %>%
+    select(-geometry) %>%
+    write.csv("Final_Data.csv")
+}
+
 # Gets the GLA data for county codes.
 get_code_data <- function() {
   return(
@@ -83,6 +89,6 @@ get_merged_data <- function() {
 }
 
 # Build our data
-dat <- get_merged_data()
+final_data <- get_merged_data()
 
 
