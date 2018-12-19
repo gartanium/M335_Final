@@ -19,12 +19,6 @@ library(leaflet)
 library(maps)
 library(pander)
 
-
-## Load in our centeroid data.
-centeroids <- read_csv("Data/Idaho_Geo_County_Centeroids.csv")
-
-
-
 # Gets the national data for every car crash involving a fatality.
 get_accident_data <- function() {
   return(
@@ -36,7 +30,6 @@ get_accident_data <- function() {
       select( -COUNTY_NUMERIC)
   )
 }
-
 
 write_data <- function(dat) {
   dat %>%
@@ -72,12 +65,12 @@ get_county_geometries <- function() {
 
 # Returns a dataframe containing the 2010 population for each county.
 get_county_populations <- function() {
+  
+  pop_dat <- read_csv("Data/County_Populations.csv")
   return (
-    us_cities() %>%
-      mutate(population, is.na(population), 0) %>%
-      mutate(SC_ID_NAMED = paste(state_name, county_name, sep='_')) %>%
-      group_by(SC_ID_NAMED) %>%
-      summarize(county_pop = sum(population))
+    pop_dat %>%
+      group_by(county_name) %>%
+      mutate(SC_ID_NAMED = paste("Idaho", county_name, sep='_'))
   )
 }
 
@@ -86,8 +79,7 @@ merge_county_data <- function() {
   geometry_dat <- get_county_geometries()
   pop_dat <- get_county_populations()
   return(
-    dplyr::left_join(geometry_dat, pop_dat, by="SC_ID_NAMED") %>%
-      filter(!is.na(county_pop))
+    dplyr::left_join(geometry_dat, pop_dat, by="SC_ID_NAMED") 
   )
 }
 
@@ -111,7 +103,7 @@ get_merged_data <- function() {
    
   return(
     dplyr::left_join(accident_code_dat, merged_county_dat) %>%
-      filter(!is.na(COUNTY_NAME))
+      filter(!is.na(COUNTY_NAME)) %>% rename(county_pop = population)
   ) 
 }
 
@@ -212,18 +204,19 @@ precise_accident_data <- final_data %>%
 ```
 
 ## Background
-Car crashes in the United States results in over 30,000 fatalities annually. Kaggle.com hosts a dataset on every car related fatality for 2015. It is titled US Traffic Fatality Records. It contains many interesting features such as the light condition, if there was a drunk driver involved in the crash, and the atmospheric condition. Often times we have stereo types of what conditions lead to the safest driving experience. We often believe that poor atmospheric conditions, lighting, population of an area, and number of drunk drivers all contribute significantly to the number of car related fatalities. This analysis will focus only on one of these attributes. Specifically, it will focus on how the population of an area effects the fatality rate of an area. Is it possible to see if more densly populated areas increase the number of car crashes per capita? This analysis will look at traffic fatalities in Idaho.
-
-## Analysis
-
+Car crashes in the United States results in over 30,000 fatalities annually. Kaggle.com hosts a dataset on every car related fatality for 2015. It is titled US Traffic Fatality Records. It contains many interesting features such as the light condition, if there was a drunk driver involved in the crash, and the atmospheric condition. Often times we have stereo types of what conditions lead to the safest driving experience. We often believe that poor atmospheric conditions, lighting, population of an area, and number of drunk drivers all contribute significantly to the number of car related fatalities. This analysis will focus only on one of these attributes. Specifically, it will focus on how the population of an area effects the fatality rate of an area.The question this analysis will answer is "Is the population of a county the major factor in the fatality rate per 100,000 people in Idaho?"
 
 ## Population Analysis
-```{r echo=FALSE, warning=F}
-leaflet_display_fatalaties_by_county(final_data)
-```
 
+
+To analyze the effect of population on car fatalities in Idaho, we will examine the following graphics. <br>
+
+First we will look at a graphic that shows the spread of population for each county in Idaho. Then we will look at how many fatalities are in each county. The next graphic shows the fatality rate of each county. The previous graphics will then help to describe what is happening in the final graphic. The final graphic shows the geographical location of every car fatality in Idaho. Each county is labeled and colored based on it's population density.
 
 ### County Populations
+
+Most of the population in Idaho is located in the following counties: <br>
+Ada, Canyon, Kootenai, Bonneville, Bannock, and Twin Falls. As such we would expect to see the most fatalities occuring in those counties.
 
 ```{r echo=FALSE, warning=F}
 
@@ -261,6 +254,8 @@ ggplot(
 
 ### Fatalities By County
 
+The counties with the most fatalites are Canyon, Ada, Bingham, Bonner, Kootenai, and Twin Falls. Interestingly enough, Ada county had 2 less fatalities then Canyon even though Ada nearly doubles the population of Canyon county. In addition, Bannock county nearly doubles the population size of Bonner county, and yet Bannock county has  2/3rds the fatalities as Bonner County. The last oddity is that Bonneville, Madison county, Gem county, and Latah county are above the median county population in Idaho, and yet they are on the lower ends of total fatalities. If population was the decisive factor in the number of fatalities in an area, we would expect to see these counties on the left side of the graphic.
+
 ```{r echo=FALSE, warning=F}
 
 
@@ -276,7 +271,8 @@ idaho_fatality_county_rates <- final_data %>%
     ) %>%
   ungroup() %>%
   arrange(desc(fatality_rate)) %>%
-  mutate(highlighted = (county_pop >= 60000))
+  mutate(highlighted = (county_pop >= 15000)) %>%
+  filter(!is.na(fatality_rate))
 
 idaho_fatality_county_rates$COUNTY_NAME <-
   factor(
@@ -329,7 +325,8 @@ ggplot() +
     aes(x=COUNTY_NAME, y=total_fatalities, fill=highlighted)
   ) +
   theme(axis.text.x = element_text(angle=45, hjust=1))  +
-  scale_fill_discrete(guide = 'none') +
+  theme(legend.position="bottom") +
+  guides(fill=guide_legend(title="Above 15,000 (Median Population)")) +
   geom_text(
     data=idaho_total_county_fatalities,
     aes(label = total_fatalities, y = total_fatalities + 0.1, x=COUNTY_NAME),
@@ -345,6 +342,14 @@ ggplot() +
 
 ## Fatality Rates Per 100,000 Peoples
 
+The graphic below shows the fatality rate per 100,000 peoples in each county. This number came from the following equation: <br>
+
+$Fatality Rate =$ $100,000 \times NumberFatalities\over CountyPopulation$
+
+What is interesting about this graphic is that the counties with a lower population tend to be higher on the fatality rate. If population was the sole dependent variable contributing to the the fatality rates of a county, we would expect to see Ada county with the highest fatality rate. However, it only has a fatality rate of 5, where as Canyon County, the second largest county, has a rate of 11. 
+
+This implies that there is another factor influencing the rate of fatalities in an area. One such factor could be that the number of travelers n an area is not completely dependent on the number of people living in a county. This is something that one might assume, because travellers cross multiple counties to get to their destinations. 
+
 ```{r echo=FALSE, warning=F}
 
 # Displays the total fatality rates.
@@ -354,19 +359,20 @@ ggplot() +
     aes(x=COUNTY_NAME, y=fatality_rate, fill=highlighted)
   ) +
   theme(axis.text.x = element_text(angle=45, hjust=1))  +
+  theme(legend.position="bottom") +
+  guides(fill=guide_legend(title="Above 15,000 (Median Population)")) +
   geom_hline(aes(yintercept=us_average_fatalities)) +
   geom_text(
     aes(
       label="National Average Fatality Rate", 
-      5, 
+      10, 
       us_average_fatalities, 
-      vjust=-1)
+      vjust=1.5)
   ) +
   geom_hline(aes(yintercept=idaho_average_fatality_rate)) +
   geom_text(
-    aes(label="Idaho Average County Rate", 5,idaho_average_fatality_rate, vjust=-1)
+    aes(label="Idaho Average County Fatality Rate", 10,idaho_average_fatality_rate, vjust=-1)
   ) +
-  scale_fill_discrete(guide = 'none') +
   ylab("Fatalities Per 100,000 People") +
   xlab("County Name") +
   ggtitle("Car Related Fatality Rates In Idaho For 2015") +
@@ -389,6 +395,19 @@ ggplot() +
       total_fatalities = sum(number_of_fatalities)
     )
 ```
+
+## Fatal Crashes by Geo Location
+
+The graphic below shows the location of every car crash in Idaho for 2015. Fatal car crashes tend to follow major highways and interstates. 
+
+```{r echo=FALSE, warning=F}
+leaflet_display_fatalaties_by_county(final_data)
+```
+
+
+## Conclusion
+In conclusion, population does play a role in the number of fatal crashes in a county. We can see that because the six biggest counties have the most fatal car crashes in their area. However, because the fatality rates are very skewed base on populations in an area, we can't conclude that population is the single dependent factor in the number of deaths in an area. For instance, Ada county is nearly double the population of Canyon county and yet Canyon county has more fatalities and nearly double the fatality rate. Boise county has one of the lowest amount of people living in it and yet it's fatality rate is among the highest. The leaflet graphic implies that the biggest contributing factor to the number of deaths in a county isn't population alone, but a combination of the highways and interstates in an area, and the number of people living in an area.
+
 
 <br>
 
